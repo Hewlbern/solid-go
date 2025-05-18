@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  solid-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      - SOLID_PORT=8080
+      - SOLID_STORAGE_PATH=/data
+      - SOLID_LOG_LEVEL=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  solid-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - .:/app
+    environment:
+      GO_TEST_FLAGS: "-v -race -coverprofile=coverage.out"
+    command: sh -c "go test ./... ${GO_TEST_FLAGS}" 
