@@ -1,0 +1,22 @@
+FROM golang:1.24-alpine
+
+WORKDIR /app
+
+# Install test dependencies
+RUN apk add --no-cache git
+
+# Copy go mod file
+COPY go.mod ./
+
+# Download all dependencies
+RUN go mod download
+
+# Copy the source code
+COPY . .
+
+# Set up test environment
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+
+# Default command (can be overridden by docker-compose)
+CMD ["go", "test", "./...", "-v", "-race", "-coverprofile=coverage.out"] 
