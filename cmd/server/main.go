@@ -2,63 +2,35 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
+	"net/http"
 	"os"
-	"strconv"
 
-	"github.com/yourusername/solid-go/internal/server"
+	"solid-go/internal/server"
+	"solid-go/internal/storage"
 )
 
 func main() {
-	// Define command-line flags
-	port := flag.Int("port", 8080, "Port to run the server on")
-	storagePath := flag.String("storage", "./data", "Path to store data")
-	logLevel := flag.String("log-level", "info", "Logging level (debug, info, warn, error)")
+	// Parse command line flags
+	port := flag.String("port", "8080", "Port to listen on")
+	dataDir := flag.String("data", "./data", "Data directory")
 	flag.Parse()
 
-	// Override with environment variables if present
-	if envPort := os.Getenv("SOLID_PORT"); envPort != "" {
-		if p, err := strconv.Atoi(envPort); err == nil {
-			*port = p
-		}
+	// Create data directory if it doesn't exist
+	if err := os.MkdirAll(*dataDir, 0755); err != nil {
+		log.Fatalf("Failed to create data directory: %v", err)
 	}
 
-	if envStoragePath := os.Getenv("SOLID_STORAGE_PATH"); envStoragePath != "" {
-		*storagePath = envStoragePath
+	// Initialize storage
+	store := storage.NewFileStorage(*dataDir)
+
+	// Initialize server
+	srv := server.NewServer(store)
+
+	// Start server
+	addr := ":" + *port
+	log.Printf("Starting server on %s", addr)
+	if err := http.ListenAndServe(addr, srv); err != nil {
+		log.Fatalf("Server failed: %v", err)
 	}
-
-	if envLogLevel := os.Getenv("SOLID_LOG_LEVEL"); envLogLevel != "" {
-		*logLevel = envLogLevel
-	}
-
-	// Set up logging
-	switch *logLevel {
-	case "debug":
-		log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-	case "info":
-		log.SetFlags(log.Ldate | log.Ltime)
-	default:
-		log.SetFlags(log.Ldate | log.Ltime)
-	}
-
-	log.Printf("Starting Solid server on port %d with storage at %s", *port, *storagePath)
-
-	// Create server facade
-	solidServer, err := server.NewServerFacade(&server.Config{
-		Port:        *port,
-		StoragePath: *storagePath,
-		LogLevel:    *logLevel,
-	})
-
-	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
-	}
-
-	// Start the server
-	if err := solidServer.Start(); err != nil {
-		log.Fatalf("Server error: %v", err)
-	}
-
-	fmt.Println("Solid server stopped")
-} 
+}
