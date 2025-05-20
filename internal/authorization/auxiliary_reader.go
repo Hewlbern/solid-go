@@ -2,7 +2,6 @@
 package authorization
 
 import (
-	"context"
 	"path/filepath"
 
 	"solid-go/internal/authorization/permissions"
@@ -23,34 +22,42 @@ func NewAuxiliaryReader(reader PermissionReader) *AuxiliaryReader {
 
 // Read implements PermissionReader.
 // It reads permissions from auxiliary resources associated with the given resource.
-func (r *AuxiliaryReader) Read(ctx context.Context, resource string) (permissions.PermissionSet, error) {
-	// Get auxiliary resource paths
-	auxPaths := r.getAuxiliaryPaths(resource)
+func (r *AuxiliaryReader) Read(input PermissionReaderInput) (map[string]permissions.PermissionSet, error) {
+	result := make(map[string]permissions.PermissionSet)
 
-	// Create a new permission set
-	perms := permissions.NewACLPermissionSet()
+	// For each requested resource
+	for resource := range input.RequestedModes {
+		// Get auxiliary resource paths
+		auxPaths := r.getAuxiliaryPaths(resource)
 
-	// Read permissions from each auxiliary resource
-	for _, path := range auxPaths {
-		auxPerms, err := r.reader.Read(ctx, path)
-		if err != nil {
-			continue // Skip this auxiliary resource if it returns an error
-		}
+		// Create a new permission set for this resource
+		perms := permissions.NewPermissionSet()
 
-		// Add all permissions from this auxiliary resource
-		for _, mode := range []permissions.Permission{
-			permissions.Read,
-			permissions.Write,
-			permissions.Append,
-			permissions.Control,
-		} {
-			if auxPerms.Has(mode) {
-				perms.Add(mode)
+		// Read permissions from each auxiliary resource
+		for _, path := range auxPaths {
+			auxInput := PermissionReaderInput{
+				Credentials: input.Credentials,
+				RequestedModes: map[string]permissions.PermissionSet{
+					path: permissions.NewPermissionSet(),
+				},
+			}
+			auxResult, err := r.reader.Read(auxInput)
+			if err != nil {
+				continue // Skip this auxiliary resource if it returns an error
+			}
+
+			// Add all permissions from this auxiliary resource
+			if auxPerms, exists := auxResult[path]; exists {
+				for mode := range auxPerms {
+					perms.Add(mode)
+				}
 			}
 		}
+
+		result[resource] = perms
 	}
 
-	return perms, nil
+	return result, nil
 }
 
 // getAuxiliaryPaths returns the paths of auxiliary resources for the given resource.
