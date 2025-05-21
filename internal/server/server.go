@@ -2,244 +2,170 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
-	"strings"
+	"time"
 
 	"solid-go/internal/acl"
 	"solid-go/internal/identity"
 	"solid-go/internal/ldp"
+	"solid-go/internal/logging"
 	"solid-go/internal/storage"
 )
 
-// Operation represents an HTTP operation to be performed
-type Operation struct {
-	Method      string
-	Target      string
-	Body        []byte
-	ContentType string
-	Headers     http.Header
-}
-
-// Representation represents a resource representation
-type Representation struct {
-	Data     []byte
-	Metadata map[string]string
-}
-
-// OperationHandler handles HTTP operations
-type OperationHandler interface {
-	Handle(ctx context.Context, op Operation) (*Representation, error)
-}
-
-// Authorizer handles authorization decisions
-type Authorizer interface {
-	Authorize(ctx context.Context, op Operation) error
-}
-
 // Server represents a Solid server
 type Server struct {
+	http.Server
 	storage    storage.Storage
 	webidStore *identity.WebIDStore
 	aclStore   map[string]*acl.ACL
 	containers map[string]*ldp.Container
+	logger     logging.Logger
 }
 
-// NewServer creates a new Solid server
-func NewServer(storage storage.Storage) *Server {
-	return &Server{
-		storage:    storage,
+// ServerOptions represents options for creating a server
+type ServerOptions struct {
+	Port     int
+	HTTPS    bool
+	CertFile string
+	KeyFile  string
+	Storage  storage.Storage
+	Logger   logging.Logger
+}
+
+// NewServer creates a new server with the given options
+func NewServer(options *ServerOptions) *Server {
+	if options.Logger == nil {
+		options.Logger = logging.NewBasicLogger(logging.Info)
+	}
+
+	srv := &Server{
+		Server: http.Server{
+			Addr:         fmt.Sprintf(":%d", options.Port),
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		},
+		storage:    options.Storage,
 		webidStore: identity.NewWebIDStore(),
 		aclStore:   make(map[string]*acl.ACL),
 		containers: make(map[string]*ldp.Container),
+		logger:     options.Logger,
+	}
+
+	// Set up routes
+	mux := http.NewServeMux()
+	srv.Handler = mux
+
+	// Add handlers
+	mux.HandleFunc("/", srv.handleRequest)
+
+	return srv
+}
+
+// handleRequest handles incoming HTTP requests
+func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
+	s.logger.Info("Received %s request for %s", r.Method, r.URL.Path)
+
+	// Handle different request types
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGet(w, r)
+	case http.MethodPost:
+		s.handlePost(w, r)
+	case http.MethodPut:
+		s.handlePut(w, r)
+	case http.MethodDelete:
+		s.handleDelete(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-// RegisterHandler registers an operation handler for a specific method
-func (s *Server) RegisterHandler(method string, handler OperationHandler) {
-	// Implementation needed
-}
-
-// ServeHTTP implements the http.Handler interface
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// handleGet handles GET requests
+func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
-	// Handle data directory queries
-	if path == "/data" || path == "/data/" {
-		s.handleDataDirectoryQuery(w, r)
-		return
-	}
-
-	// Handle WebID requests
-	if strings.HasPrefix(path, "/profile/") {
-		s.handleWebIDRequest(w, r)
-		return
-	}
-
-	// Handle ACL requests
-	if strings.HasSuffix(path, ".acl") {
-		s.handleACLRequest(w, r)
-		return
-	}
-
-	// Handle LDP requests
-	if s.isContainer(path) {
-		s.handleContainerRequest(w, r)
-		return
-	}
-
-	// Handle resource requests
-	s.handleResourceRequest(w, r)
-}
-
-// DataDirectoryInfo represents information about the data directory
-type DataDirectoryInfo struct {
-	Path       string   `json:"path"`
-	Resources  []string `json:"resources"`
-	Containers []string `json:"containers"`
-	ACLs       []string `json:"acls"`
-}
-
-// handleDataDirectoryQuery handles requests for data directory information
-func (s *Server) handleDataDirectoryQuery(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Get all resources
-	resources, err := s.storage.List(r.Context(), "/")
+	// Check if path exists
+	exists, err := s.storage.Exists(r.Context(), path)
 	if err != nil {
-		http.Error(w, "Failed to list resources", http.StatusInternalServerError)
+		s.logger.Error("Error checking path existence: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Separate resources into different categories
-	var containers []string
-	var acls []string
-	var regularResources []string
-
-	for _, resource := range resources {
-		switch {
-		case strings.HasSuffix(resource, "/"):
-			containers = append(containers, resource)
-		case strings.HasSuffix(resource, ".acl"):
-			acls = append(acls, resource)
-		default:
-			regularResources = append(regularResources, resource)
-		}
-	}
-
-	info := DataDirectoryInfo{
-		Path:       "/",
-		Resources:  regularResources,
-		Containers: containers,
-		ACLs:       acls,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(info); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	if !exists {
+		http.NotFound(w, r)
 		return
 	}
-}
 
-// handleWebIDRequest handles WebID profile requests
-func (s *Server) handleWebIDRequest(w http.ResponseWriter, r *http.Request) {
-	webid := strings.TrimPrefix(r.URL.Path, "/profile/")
-	profile, err := s.webidStore.GetWebID(webid)
+	// Get resource
+	data, err := s.storage.Get(r.Context(), path)
 	if err != nil {
-		http.Error(w, "WebID not found", http.StatusNotFound)
+		s.logger.Error("Error getting resource: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Return profile as RDF
+	// Set content type
 	w.Header().Set("Content-Type", "text/turtle")
-	// TODO: Convert profile to Turtle format
+	w.Write(data)
 }
 
-// handleACLRequest handles ACL requests
-func (s *Server) handleACLRequest(w http.ResponseWriter, r *http.Request) {
-	resourcePath := strings.TrimSuffix(r.URL.Path, ".acl")
-	acl, exists := s.aclStore[resourcePath]
-	if !exists {
-		acl = acl.NewACL()
-		s.aclStore[resourcePath] = acl
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		w.Header().Set("Content-Type", "text/turtle")
-		// TODO: Convert ACL to Turtle format
-	case http.MethodPut:
-		// TODO: Parse ACL from request body
-		s.aclStore[resourcePath] = acl
-		w.WriteHeader(http.StatusOK)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
+// handlePost handles POST requests
+func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
+	// TODO: Implement POST handling
+	http.Error(w, "Not implemented", http.StatusNotImplemented)
 }
 
-// handleContainerRequest handles LDP container requests
-func (s *Server) handleContainerRequest(w http.ResponseWriter, r *http.Request) {
-	container, exists := s.containers[r.URL.Path]
-	if !exists {
-		container = ldp.NewContainer(s.storage, r.URL.Path)
-		s.containers[r.URL.Path] = container
-	}
+// handlePut handles PUT requests
+func (s *Server) handlePut(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
 
-	switch r.Method {
-	case http.MethodGet:
-		resources, err := container.ListResources(r.Context())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// TODO: Return container listing
-	case http.MethodPost:
-		// TODO: Create new resource in container
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// Read request body
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.logger.Error("Error reading request body: %v", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
 	}
-}
+	defer r.Body.Close()
 
-// handleResourceRequest handles resource requests
-func (s *Server) handleResourceRequest(w http.ResponseWriter, r *http.Request) {
-	// Check ACL
-	if !s.checkAccess(r) {
-		http.Error(w, "Access denied", http.StatusForbidden)
+	// Store resource
+	err = s.storage.Put(r.Context(), path, data)
+	if err != nil {
+		s.logger.Error("Error storing resource: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	switch r.Method {
-	case http.MethodGet:
-		data, err := s.storage.Get(r.Context(), r.URL.Path)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Write(data)
-	case http.MethodPut:
-		// TODO: Handle resource update
-	case http.MethodDelete:
-		err := s.storage.Delete(r.Context(), r.URL.Path)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	w.WriteHeader(http.StatusCreated)
+}
+
+// handleDelete handles DELETE requests
+func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	// Delete resource
+	err := s.storage.Delete(r.Context(), path)
+	if err != nil {
+		s.logger.Error("Error deleting resource: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
-// checkAccess checks if the request has access to the resource
-func (s *Server) checkAccess(r *http.Request) bool {
-	// TODO: Implement proper access control
-	return true
+// Start starts the server
+func (s *Server) Start() error {
+	s.logger.Info("Starting server on %s", s.Addr)
+	return s.ListenAndServe()
 }
 
-// isContainer checks if a path is a container
-func (s *Server) isContainer(path string) bool {
-	return strings.HasSuffix(path, "/")
+// Shutdown gracefully shuts down the server
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.logger.Info("Shutting down server")
+	return s.Server.Shutdown(ctx)
 }

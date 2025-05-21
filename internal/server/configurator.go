@@ -12,19 +12,24 @@ type ServerConfigurator interface {
 
 // HandlerServerConfigurator configures server handlers
 type HandlerServerConfigurator struct {
-	path    string
-	handler http.Handler
+	handlers map[string]http.Handler
 }
 
 // NewHandlerServerConfigurator creates a new HandlerServerConfigurator
-func NewHandlerServerConfigurator(path string, handler http.Handler) *HandlerServerConfigurator {
+func NewHandlerServerConfigurator() *HandlerServerConfigurator {
 	return &HandlerServerConfigurator{
-		path:    path,
-		handler: handler,
+		handlers: make(map[string]http.Handler),
 	}
+}
+
+// AddHandler adds a handler for a path
+func (c *HandlerServerConfigurator) AddHandler(path string, handler http.Handler) {
+	c.handlers[path] = handler
 }
 
 // Configure implements ServerConfigurator
 func (c *HandlerServerConfigurator) Configure(mux *http.ServeMux) {
-	mux.Handle(c.path, c.handler)
+	for path, handler := range c.handlers {
+		mux.Handle(path, handler)
+	}
 }

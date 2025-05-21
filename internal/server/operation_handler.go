@@ -6,6 +6,11 @@ import (
 	"net/http"
 )
 
+// OperationHandler handles HTTP operations
+type OperationHandler interface {
+	Handle(ctx context.Context, op Operation) (*Representation, error)
+}
+
 // OperationHttpHandler handles HTTP operations
 type OperationHttpHandler interface {
 	HttpHandler
@@ -13,7 +18,7 @@ type OperationHttpHandler interface {
 	HandleOperation(ctx context.Context, op Operation) (*Representation, error)
 }
 
-// BaseOperationHandler provides a base implementation of OperationHttpHandler
+// BaseOperationHandler is a base implementation of OperationHandler
 type BaseOperationHandler struct {
 	handler OperationHandler
 }
@@ -41,7 +46,9 @@ func (h *BaseOperationHandler) Handle(w http.ResponseWriter, r *http.Request) er
 		if err != nil {
 			return err
 		}
-		op.Body = body
+		op.Body = &Representation{
+			Data: body,
+		}
 	}
 
 	// Handle the operation
@@ -61,7 +68,7 @@ func (h *BaseOperationHandler) Handle(w http.ResponseWriter, r *http.Request) er
 	return nil
 }
 
-// HandleOperation implements OperationHttpHandler
+// HandleOperation handles an operation
 func (h *BaseOperationHandler) HandleOperation(ctx context.Context, op Operation) (*Representation, error) {
 	return h.handler.Handle(ctx, op)
 }

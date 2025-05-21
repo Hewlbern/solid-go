@@ -18,6 +18,8 @@ const (
 	Warn
 	// Error represents error level logging
 	Error
+	// Fatal represents fatal level logging
+	Fatal
 )
 
 // Logger is the interface for logging
@@ -30,26 +32,17 @@ type Logger interface {
 	Warn(message string, meta ...interface{})
 	// Error logs an error message
 	Error(message string, meta ...interface{})
-	// Fatal logs a fatal message
+	// Fatal logs a fatal message and exits
 	Fatal(message string, meta ...interface{})
 }
 
 // VoidLogger is a logger that does nothing
 type VoidLogger struct{}
 
-// Debug implements Logger.Debug
 func (l *VoidLogger) Debug(message string, meta ...interface{}) {}
-
-// Info implements Logger.Info
-func (l *VoidLogger) Info(message string, meta ...interface{}) {}
-
-// Warn implements Logger.Warn
-func (l *VoidLogger) Warn(message string, meta ...interface{}) {}
-
-// Error implements Logger.Error
+func (l *VoidLogger) Info(message string, meta ...interface{})  {}
+func (l *VoidLogger) Warn(message string, meta ...interface{})  {}
 func (l *VoidLogger) Error(message string, meta ...interface{}) {}
-
-// Fatal implements Logger.Fatal
 func (l *VoidLogger) Fatal(message string, meta ...interface{}) {}
 
 // BasicLogger is a basic implementation of Logger
@@ -92,4 +85,12 @@ func (l *BasicLogger) Error(format string, args ...interface{}) {
 	if l.level <= Error {
 		fmt.Fprintf(l.out, "[ERROR] "+format+"\n", args...)
 	}
+}
+
+// Fatal implements Logger.Fatal
+func (l *BasicLogger) Fatal(format string, args ...interface{}) {
+	if l.level <= Fatal {
+		fmt.Fprintf(l.out, "[FATAL] "+format+"\n", args...)
+	}
+	os.Exit(1)
 }

@@ -1,65 +1,47 @@
 package ldp
 
-import (
-	"context"
-	"path/filepath"
-	"strings"
-
-	"solid-go/internal/rdf"
-	"solid-go/internal/storage"
-)
-
-// Container represents an LDP container
+// Container represents a Linked Data Platform container
 type Container struct {
-	storage storage.Storage
-	path    string
+	Path       string
+	Resources  []string
+	Containers []string
 }
 
-// NewContainer creates a new LDP container
-func NewContainer(storage storage.Storage, path string) *Container {
+// NewContainer creates a new container
+func NewContainer(path string) *Container {
 	return &Container{
-		storage: storage,
-		path:    path,
+		Path:       path,
+		Resources:  make([]string, 0),
+		Containers: make([]string, 0),
 	}
 }
 
-// CreateResource creates a new resource in the container
-func (c *Container) CreateResource(ctx context.Context, name string, data []byte) error {
-	path := filepath.Join(c.path, name)
-	return c.storage.Put(ctx, path, data)
+// AddResource adds a resource to the container
+func (c *Container) AddResource(path string) {
+	c.Resources = append(c.Resources, path)
 }
 
-// GetResource retrieves a resource from the container
-func (c *Container) GetResource(ctx context.Context, name string) ([]byte, error) {
-	path := filepath.Join(c.path, name)
-	return c.storage.Get(ctx, path)
+// AddContainer adds a sub-container to the container
+func (c *Container) AddContainer(path string) {
+	c.Containers = append(c.Containers, path)
 }
 
-// DeleteResource deletes a resource from the container
-func (c *Container) DeleteResource(ctx context.Context, name string) error {
-	path := filepath.Join(c.path, name)
-	return c.storage.Delete(ctx, path)
+// RemoveResource removes a resource from the container
+func (c *Container) RemoveResource(path string) {
+	for i, r := range c.Resources {
+		if r == path {
+			c.Resources = append(c.Resources[:i], c.Resources[i+1:]...)
+			break
+		}
+	}
 }
 
-// ListResources lists all resources in the container
-func (c *Container) ListResources(ctx context.Context) ([]string, error) {
-	// In a real implementation, this would use the storage backend to list resources
-	// For now, we'll return an empty list
-	return []string{}, nil
-}
-
-// IsContainer checks if a path is a container
-func (c *Container) IsContainer(path string) bool {
-	return strings.HasSuffix(path, "/")
-}
-
-// GetContainerMetadata returns the container's metadata as RDF
-func (c *Container) GetContainerMetadata() *rdf.Graph {
-	graph := rdf.NewGraph()
-	graph.Add(rdf.Triple{
-		Subject:   c.path,
-		Predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
-		Object:    "http://www.w3.org/ns/ldp#Container",
-	})
-	return graph
+// RemoveContainer removes a sub-container from the container
+func (c *Container) RemoveContainer(path string) {
+	for i, sub := range c.Containers {
+		if sub == path {
+			c.Containers = append(c.Containers[:i], c.Containers[i+1:]...)
+			break
+		}
+	}
 }
