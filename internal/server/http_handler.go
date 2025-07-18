@@ -1,28 +1,11 @@
 package server
 
-import (
-	"net/http"
-)
+import "net/http"
 
-// HttpHandler defines the interface for HTTP request handlers
-type HttpHandler interface {
-	// Handle processes an HTTP request and writes the response
-	Handle(w http.ResponseWriter, r *http.Request) error
+// HttpHandlerInput represents the input for an HTTP handler.
+type HttpHandlerInput struct {
+	Request  *http.Request
+	Response http.ResponseWriter
 }
 
-// HttpRequest represents an HTTP request with additional metadata
-type HttpRequest struct {
-	*http.Request
-	Method      string
-	Target      string
-	Body        []byte
-	ContentType string
-	Headers     http.Header
-}
-
-// HttpResponse represents an HTTP response with additional metadata
-type HttpResponse struct {
-	StatusCode int
-	Body       []byte
-	Headers    http.Header
-}
+// The HttpHandler interface is already defined elsewhere in the codebase.

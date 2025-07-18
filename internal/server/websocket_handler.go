@@ -1,30 +1,14 @@
 package server
 
-import (
-	"net/http"
-)
+import "net/http"
 
-// WebSocketHandler handles WebSocket connections
+// WebSocketHandlerInput represents the input for a WebSocket handler.
+type WebSocketHandlerInput struct {
+	WebSocket      interface{} // Replace with actual WebSocket type if using a library
+	UpgradeRequest *http.Request
+}
+
+// WebSocketHandler is an interface for handling WebSocket connections.
 type WebSocketHandler interface {
-	// HandleWebSocket handles a WebSocket connection
-	HandleWebSocket(w http.ResponseWriter, r *http.Request) error
-}
-
-// BaseWebSocketHandler provides a base implementation of WebSocketHandler
-type BaseWebSocketHandler struct {
-	upgrader http.Handler
-}
-
-// NewBaseWebSocketHandler creates a new BaseWebSocketHandler
-func NewBaseWebSocketHandler(upgrader http.Handler) *BaseWebSocketHandler {
-	return &BaseWebSocketHandler{
-		upgrader: upgrader,
-	}
-}
-
-// HandleWebSocket implements WebSocketHandler
-func (h *BaseWebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) error {
-	// Upgrade the HTTP connection to a WebSocket connection
-	h.upgrader.ServeHTTP(w, r)
-	return nil
+	HandleSafe(input WebSocketHandlerInput) error
 }
